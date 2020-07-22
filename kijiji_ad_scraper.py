@@ -4,12 +4,41 @@ from bs4 import BeautifulSoup # HTML parsing
 import pandas as pd # For output data.
 import re  # Parsing a few strings
 
+# FORMAT OUR OUTPUT WITH PANDAS
+headers = [
+    "title",
+    "address",
+    "unit_type",
+    "price",
+    "bedrooms",
+    "bathrooms",
+    "apartment_lat",
+    "apartment_lon",
+    "hydro_included",
+    "heat_included",
+    "water_included",
+    "laundry_included",
+    "backyard_included",
+    "parking_included",
+    "gym_included",
+    "sqft",
+    "furnished",
+    "air_conditioning",
+    "walk_score",
+    "transit_score",
+    "bike_score",
+    "img_1",
+    'img_2"',
+    "img_3",
+]
+
 # SETUP PARAMS
 base_search = "https://www.kijiji.ca/b-apartments-condos/city-of-toronto/apartment/page-"
 secondary_search = "/k0c37l1700273?sort=relevancyDesc&ad=offering"
 new_ads = []
 continue_search = True
 page_num = 1
+output_file = "scraped_ads.csv"
 
 # LOOP THROUGH ADS
 while continue_search:
@@ -40,20 +69,28 @@ while continue_search:
         # ==== IDENTIFY VARYING CLASSES ==== #
         # Price and address classes
         price_class, address_class, alternate_prop_class, h_class, description_class = None, None, None, None, None
-        for span in ad_soup.find_all("span"):
-            if span.has_attr("class"):
-                if "currentPrice" in span["class"][0]:
-                    price_class = span["class"][0]
-                elif "address-" in span["class"][0]:
-                    address_class = span["class"][0]
-                elif "Bedrooms:" in span.text:  # TODO: make this more efficient.
-                    alternate_prop_class = span["class"][0]
+        try:
+            for span in ad_soup.find_all("span"):
+                if span.has_attr("class"):
+                    if "currentPrice" in span["class"][0]:
+                        price_class = span["class"][0]
+                    elif "address-" in span["class"][0]:
+                        address_class = span["class"][0]
+                    elif "Bedrooms:" in span.text:  # TODO: make this more efficient.
+                        alternate_prop_class = span["class"][0]
+        except:
+            price_class = None
+            address_class = None
+            alternate_prop_class = None
 
         # header class:
-        for h in ad_soup.find_all("h3"):
-            if h.has_attr("class"):
-                if "attributeCardTitle-" in h["class"][0]:
-                    h_class = h["class"][0]
+        try:
+            for h in ad_soup.find_all("h3"):
+                if h.has_attr("class"):
+                    if "attributeCardTitle-" in h["class"][0]:
+                        h_class = h["class"][0]
+        except:
+            h_class = None
 
         # Description class:
         for div in ad_soup.find_all("div"):
@@ -92,56 +129,59 @@ while continue_search:
         # ==== Find properties in "Overview", "The Unit", and "The Building" Sections ==== #
         props = {}
         hydro_included, heat_included, water_included, laundry_included, backyard_included, gym_included = 0.0,0.0,0.0,0.0,0.0,0.0
-        for hh in ad_soup.find_all("h3", class_=h_class):
-            for li in hh.parent.ul:
-                if li.has_attr("class"):
-                    if "twoLinesAttribute-" in li["class"][0]:  # Pull all other attributes.
-                        if li.dl.dt.text == "Furnished" or li.dl.dt.text == "Air Conditioning":
-                            if li.dl.dd.text == "No":
-                                props[li.dl.dt.text] = 0.0
-                            else:
-                                props[li.dl.dt.text] = 1.0
-                        elif li.dl.dt.text == "Size (sqft)":
-                            if li.dl.dd.text == "Not Available":
-                                pass
+        try:
+            for hh in ad_soup.find_all("h3", class_=h_class):
+                for li in hh.parent.ul:
+                    if li.has_attr("class"):
+                        if "twoLinesAttribute-" in li["class"][0]:  # Pull all other attributes.
+                            if li.dl.dt.text == "Furnished" or li.dl.dt.text == "Air Conditioning":
+                                if li.dl.dd.text == "No":
+                                    props[li.dl.dt.text] = 0.0
+                                else:
+                                    props[li.dl.dt.text] = 1.0
+                            elif li.dl.dt.text == "Size (sqft)":
+                                if li.dl.dd.text == "Not Available":
+                                    pass
+                                else:
+                                    props[li.dl.dt.text] = li.dl.dd.text
                             else:
                                 props[li.dl.dt.text] = li.dl.dd.text
-                        else:
-                            props[li.dl.dt.text] = li.dl.dd.text
-                    elif "attributeGroupContainer-" in li["class"][0]:
-                        # Utils case
-                        if "Utilities Included" in li.div.h4.text:
-                            for util_li in li.div.ul:
-                                if util_li == "Not Included":
-                                    pass  # Utils set to false
-                                elif util_li.svg.has_attr("aria-label"):
-                                    if util_li.svg["aria-label"] == "Yes: Hydro":
-                                        hydro_included = 1.0
-                                    elif util_li.svg["aria-label"] == "Yes: Heat":
-                                        heat_included = 1.0
-                                    elif util_li.svg["aria-label"] == "Yes: Water":
-                                        water_included = 1.0
+                        elif "attributeGroupContainer-" in li["class"][0]:
+                            # Utils case
+                            if "Utilities Included" in li.div.h4.text:
+                                for util_li in li.div.ul:
+                                    if util_li == "Not Included":
+                                        pass  # Utils set to false
+                                    elif util_li.svg.has_attr("aria-label"):
+                                        if util_li.svg["aria-label"] == "Yes: Hydro":
+                                            hydro_included = 1.0
+                                        elif util_li.svg["aria-label"] == "Yes: Heat":
+                                            heat_included = 1.0
+                                        elif util_li.svg["aria-label"] == "Yes: Water":
+                                            water_included = 1.0
 
-                        # Appliances case
-                        if "Appliances" in li.div.h4.text:
-                            for app_li in li.div.ul:
-                                if app_li == "Not Included":
-                                    pass  # Set to false
-                                elif "Laundry" in app_li.text:
-                                    laundry_included = 1.0
+                            # Appliances case
+                            if "Appliances" in li.div.h4.text:
+                                for app_li in li.div.ul:
+                                    if app_li == "Not Included":
+                                        pass  # Set to false
+                                    elif "Laundry" in app_li.text:
+                                        laundry_included = 1.0
 
-                        # Backyard case
-                        if "Personal Outdoor Space" in li.div.h4.text:
-                            if li.div.ul.text != "Not Included":
-                                backyard_included = 1.0
+                            # Backyard case
+                            if "Personal Outdoor Space" in li.div.h4.text:
+                                if li.div.ul.text != "Not Included":
+                                    backyard_included = 1.0
 
-                        # Amenities case:
-                        if "Amenities" in li.div.h4.text:
-                            for amenity in li.div.ul:
-                                if amenity == "Not Included":
-                                    pass  # no extra props to add
-                                elif "Gym" in amenity.text:
-                                    gym_included = 1.0
+                            # Amenities case:
+                            if "Amenities" in li.div.h4.text:
+                                for amenity in li.div.ul:
+                                    if amenity == "Not Included":
+                                        pass  # no extra props to add
+                                    elif "Gym" in amenity.text:
+                                        gym_included = 1.0
+        except:
+            pass  # Also gross but that's life sometimes.
 
         # ==== Pull full text description ==== #
         # Don't bother pulling description rn.
@@ -156,31 +196,37 @@ while continue_search:
         # , and # Bathrooms.
         # ------------------------------------------
         if "Unit Type" not in props or "Bedrooms" not in props or "Bathrooms" not in props:
-            for span in ad_soup.find_all("span", class_=alternate_prop_class):
-                if "Apartment" in span.text or "Basement" in span.text or "House" in span.text or "Condo" in span.text:
-                    props["Unit Type"] = span.text
-                elif "Bedrooms:" in span.text:
-                    val = span.text.split( ":", 1)[1][1:]  # string of form "Bedrooms: [int]"
-                    if val == "Bachelor/Studio":
-                        props["Bedrooms"] = 1
-                    elif " + Den" in val:
-                        props["Bedrooms"] = int(val[0]) + 0.5 # Add .5 of a bed for den.
-                    else:
-                        props["Bedrooms"] = val
-                elif "Bathrooms" in span.text:
-                    props["Bathrooms"] = int("".join(filter(str.isdigit, span.text)))
+            try:
+                for span in ad_soup.find_all("span", class_=alternate_prop_class):
+                    if "Apartment" in span.text or "Basement" in span.text or "House" in span.text or "Condo" in span.text:
+                        props["Unit Type"] = span.text
+                    elif "Bedrooms:" in span.text:
+                        val = span.text.split( ":", 1)[1][1:]  # string of form "Bedrooms: [int]"
+                        if val == "Bachelor/Studio":
+                            props["Bedrooms"] = 1
+                        elif " + Den" in val:
+                            props["Bedrooms"] = int(val[0]) + 0.5 # Add .5 of a bed for den.
+                        else:
+                            props["Bedrooms"] = val
+                    elif "Bathrooms" in span.text:
+                        props["Bathrooms"] = int("".join(filter(str.isdigit, span.text)))
+            except:
+                pass
 
         # Parse description for more info ???
         # Nothing right now
 
         # Pull lat/lon straight from site:
         apartment_lon, apartment_lat = None, None
-        for meta in ad_soup.find_all("meta"):
-            if meta.has_attr("property"):
-                if meta["property"] == "og:latitude":
-                    apartment_lat = meta["content"]
-                elif meta["property"] == "og:longitude":
-                    apartment_lon = meta["content"]
+        try:
+            for meta in ad_soup.find_all("meta"):
+                if meta.has_attr("property"):
+                    if meta["property"] == "og:latitude":
+                        apartment_lat = meta["content"]
+                    elif meta["property"] == "og:longitude":
+                        apartment_lon = meta["content"]
+        except:
+            None
 
         # Instead, parse our walkscore site with Beautiful Soup bc their API only gives me
         # Walk not transit score.
@@ -215,20 +261,23 @@ while continue_search:
         #       - Number of bathrooms
         #       Any other parameters may be left out and will be assume to be False (e.g. backyard included..)
         good_ad = False
-        if (   # TODO clean up logic with np.all()
-                price is not None and
-                apartment_lon is not None and
-                apartment_lat is not None and
-                props.get("Size (sqft)") is not None and
-                # imgs is not None and  # Allow non-image data until we're using the CNN.
-                props.get("Bedrooms") is not None and
-                props.get("Bathrooms") is not None and
-                walk_score is not None and
-                transit_score is not None and
-                bike_score is not None and
-                props.get("Unit Type") is not None
-        ):
-            good_ad = True
+        try:
+            if (   # TODO clean up logic with np.all()
+                    price is not None and
+                    apartment_lon is not None and
+                    apartment_lat is not None and
+                    props.get("Size (sqft)") is not None and
+                    # imgs is not None and  # Allow non-image data until we're using the CNN.
+                    props.get("Bedrooms") is not None and
+                    props.get("Bathrooms") is not None and
+                    walk_score is not None and
+                    transit_score is not None and
+                    bike_score is not None and
+                    props.get("Unit Type") is not None
+            ):
+                good_ad = True
+        except:
+            good_ad = False
 
         # Gather all our data and append to the master list which will go into our dataset
         if good_ad == True :
@@ -265,38 +314,17 @@ while continue_search:
             print ("        {0}".format(title))
             # print ("        {0}".format(ad_url))
 
+    ads_df = pd.DataFrame(
+        new_ads,
+        columns=headers
+    )
+    if page_num == 1:
+        ads_df.to_csv( output_file )   # first append
+    else:
+        ads_df.to_csv( output_file, header=None, mode="a")  # apppend
+
+    new_ads = []    # reset ads
     page_num += 1
 # ==========================================================
 
-# FORMAT OUR OUTPUT WITH PANDAS
-headers = [
-    "title",
-    "address",
-    "unit_type",
-    "price",
-    "bedrooms",
-    "bathrooms",
-    "apartment_lat",
-    "apartment_lon",
-    "hydro_included",
-    "heat_included",
-    "water_included",
-    "laundry_included",
-    "backyard_included",
-    "parking_included",
-    "gym_included",
-    "sqft",
-    "furnished",
-    "air_conditioning",
-    "walk_score",
-    "transit_score",
-    "bike_score",
-    "img_1",
-    'img_2"',
-    "img_3",
-]
-ads_df = pd.DataFrame(
-    new_ads,
-    columns= headers
-)
-ads_df.to_excel ( "new_ads.xlsx" )
+
