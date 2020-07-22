@@ -1,0 +1,6 @@
+
+[ --- Unfixed --- ]
+Traceback (most recent call last):
+  File "C:/Users/phili/Documents/U of T/PEY_summer/gta-apartment-pricing/kijiji_ad_scraper.py", line 58, in <module>
+    scraped_page_num = int( soup.find( "span", class_="selected" ).text )
+AttributeError: 'NoneType' object has no attribute 'text'

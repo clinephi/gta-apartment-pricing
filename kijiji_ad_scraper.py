@@ -4,9 +4,16 @@ from bs4 import BeautifulSoup # HTML parsing
 import pandas as pd # For output data.
 import re  # Parsing a few strings
 
+# DEFINE SOME CONSTANTS:
+GTA_WEST_LON =  -79.798240
+GTA_EAST_LON = -79.037703
+GTA_NORTH_LAT = 43.931849
+GTA_SOUTH_LAT = 43.408558
+
 # FORMAT OUR OUTPUT WITH PANDAS
 headers = [
     "title",
+    "ad_url",
     "address",
     "unit_type",
     "price",
@@ -48,10 +55,13 @@ while continue_search:
     soup = BeautifulSoup(page.content, "html.parser")
 
     # CHECK END CONDITION
-    scraped_page_num = int( soup.find( "span", class_="selected" ).text )
-    if scraped_page_num < page_num:
-        continue_search = False  # we've maxed out pages and are getting redirected to max page.
-        break  # kinda gross but whatever
+    try:
+        scraped_page_num = int( soup.find( "span", class_="selected" ).text )
+        if scraped_page_num < page_num:
+            continue_search = False  # we've maxed out pages and are getting redirected to max page.
+            break  # kinda gross but whatever
+    except:
+        scraped_page_num = None
 
     # LOG ITERS:
     print("Results for Page Number {0}".format(page_num))
@@ -140,10 +150,26 @@ while continue_search:
                                 else:
                                     props[li.dl.dt.text] = 1.0
                             elif li.dl.dt.text == "Size (sqft)":
-                                if li.dl.dd.text == "Not Available":
+                                sq_feet = li.dl.dd.text  # define this for convenience.
+                                sq_feet = sq_feet.replace(",", "")  # replace commas.
+                                if sq_feet == "Not Available":
                                     pass
+                                elif int( sq_feet) < 50 or int( sq_feet ) > 3000:
+                                    pass  # don't assign bad sqft values
                                 else:
-                                    props[li.dl.dt.text] = li.dl.dd.text
+                                    props[li.dl.dt.text] = sq_feet
+                            elif "Bedrooms" in li.dl.dt.text:
+                                if li.dl.dt.text == "Bachelor/Studio":
+                                    props["Bedrooms"] = 1
+                                elif " + Den" in li.dl.dt.text:
+                                    props["Bedrooms"] = int(li.dl.dt.text[0]) + 0.5  # Add .5 of a bed for den.
+                                else:
+                                    props["Bedrooms"] = li.dl.dt.text
+                            elif "Bathrooms" in li.dl.dt.text:
+                                if int( li.dl.dt.text ) > 5:
+                                    props["Bathrooms"] = 2
+                                else:
+                                    props["Bathrooms"] = li.dl.dt.text
                             else:
                                 props[li.dl.dt.text] = li.dl.dd.text
                         elif "attributeGroupContainer-" in li["class"][0]:
@@ -225,8 +251,17 @@ while continue_search:
                         apartment_lat = meta["content"]
                     elif meta["property"] == "og:longitude":
                         apartment_lon = meta["content"]
+
+            if (float(apartment_lon) < GTA_WEST_LON
+                or float(apartment_lon) > GTA_EAST_LON
+                or float(apartment_lat) > GTA_NORTH_LAT
+                or float(apartment_lat) < GTA_SOUTH_LAT ):
+
+                apartment_lat = None  # outside bounds, ignore.
+                apartment_lon = None
         except:
-            None
+            apartment_lon = None
+            apartment_lat = None
 
         # Instead, parse our walkscore site with Beautiful Soup bc their API only gives me
         # Walk not transit score.
@@ -253,7 +288,7 @@ while continue_search:
 
         # ===== Check integrity of data ==== #
         # The following attributes are not optional:
-        #       - price
+        #       - price  (Also must be between X and Y $ / room )
         #       - sqr feet
         #       - A minimum of 3 images
         #       - Number of Bedrooms
@@ -261,6 +296,11 @@ while continue_search:
         #       - Number of bathrooms
         #       Any other parameters may be left out and will be assume to be False (e.g. backyard included..)
         good_ad = False
+        try:
+            ppb = price / props["Bedrooms"]  # Check if price per bedroom is reasonable.
+        except:
+            pass
+
         try:
             if (   # TODO clean up logic with np.all()
                     price is not None and
@@ -283,6 +323,7 @@ while continue_search:
         if good_ad == True :
             ad_scraped_data = [
                 title,
+                ad_url,
                 address,
                 props["Unit Type"],
                 price,
